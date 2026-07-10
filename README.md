@@ -6,9 +6,15 @@ The agent helps users plan customized travel itineraries (up to 3 days) by gathe
 
 ## Features
 
+-   **Multi-Agent Architecture (V2)**:
+    *   **Router Agent**: Routes user intent, handles swaps, locks, and general queries.
+    *   **Planner Agent**: Specialized in building the itinerary.
+    *   **Booking Agent**: Handles mock flight and hotel bookings.
+-   **Runtime Guardrails (V2)**: Automatically validates generated itineraries for duplicate slots, duplicate indices, and weather conflicts (e.g. outdoor activities during rain), populating a `warnings` field.
+-   **Human-in-the-Loop (HITL) (V2)**: Prompts for confirmation in the CLI before performing high-stakes mock bookings.
+-   **Structured & Sanitized Logging (V2)**: Logs all events in JSON format with automatic redaction of PII (emails and phone numbers).
 -   **Interactive Vibe Check**: Gathers explicit user preferences at startup.
 -   **Structured Itineraries**: Generates itineraries conforming to a strict JSON schema.
--   - **Active Adaptation**: Avoids outdoor activities on rainy days using weather forecast data.
 -   **Interactive CLI Loop**:
     -   `/lock [index]`: Pin an activity to preserve it during subsequent regenerations.
     -   `/swap [index]`: Replace an activity with an alternative of the same category (triggers implicit preference weight decay for the disliked category).
@@ -37,10 +43,11 @@ The agent helps users plan customized travel itineraries (up to 3 days) by gathe
     ```
 
 3.  **Configure Environment Variables**:
-    Create a `.env` file in the project root directory and add your Gemini API key:
+    Create a `.env` file in the project root directory. You can use a local API key:
     ```env
     GEMINI_API_KEY=your_actual_gemini_api_key_here
     ```
+    Alternatively, you can configure it to fetch from **Google Cloud Secret Manager** (see below).
     The application will automatically load this file on startup.
 
 ## Installation
@@ -56,6 +63,28 @@ To install development dependencies (for running tests):
 ```bash
 pip install -e .[dev]
 ```
+
+## GCP Secret Manager & Infrastructure (V2)
+
+For production environments, you can store your API key in Google Cloud Secret Manager.
+
+### 1. Provision Infrastructure
+We provide Terraform configurations in the `terraform/` directory to enable Secret Manager and Vertex AI APIs and create the secret.
+
+```bash
+cd terraform
+terraform init
+terraform apply -var="project_id=YOUR_GCP_PROJECT_ID"
+```
+
+After applying, add your Gemini API Key as the latest version of the `gemini-api-key` secret in GCP Console.
+
+### 2. Configure CLI for Secret Manager
+Set your GCP Project ID in your `.env` file:
+```env
+GCP_PROJECT_ID=your_gcp_project_id
+```
+When launched, the CLI will attempt to fetch the API key from Secret Manager. It will fall back to local `.env` variables if the GCP fetch fails or if the `google-cloud-secret-manager` package is not installed.
 
 ## Running the CLI Application
 
