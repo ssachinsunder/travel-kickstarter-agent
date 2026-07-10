@@ -1,0 +1,39 @@
+[build-system]
+requires = ["setuptools>=61.0.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "travel-kickstarter-agent"
+version = "0.1.0"
+description = "A personalized travel planning agent built with Google ADK"
+readme = "README.md"
+requires-python = ">=3.10"
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "Operating System :: OS Independent",
+]
+dependencies = [
+    "google-adk>=2.4.0",
+    "google-genai>=2.11.0",
+    "questionary>=2.1.1",
+    "python-dotenv>=1.2.2",
+    "aiosqlite>=0.22.1",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=9.1.1",
+    "pytest-cov>=7.1.0",
+    "anyio>=4.14.1",
+]
+
+[project.scripts]
+travel-agent = "src.cli:run_cli"
+
+[tool.setuptools]
+packages = ["src"]
+
+[tool.coverage.run]
+omit = [
+    "src/cli.py",
+]

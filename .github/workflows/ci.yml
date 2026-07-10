@@ -1,0 +1,33 @@
+name: CI
+
+on:
+  push:
+    branches: [ main, master ]
+  pull_request:
+    branches: [ main, master ]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v4
+    
+    - name: Set up Python
+      uses: actions/setup-python@v5
+      with:
+        python-python: '3.13'
+        
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install -e .[dev]
+        
+    - name: Run tests with coverage
+      env:
+        GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+        # We need the API key for integration tests and evals.
+        # In a real GitHub actions environment, the user would need to configure this secret.
+      run: |
+        # We run pytest, which will respect the omit configuration in pyproject.toml
+        # and enforce at least 80% coverage.
+        pytest --cov=src --cov-fail-under=80 tests/
