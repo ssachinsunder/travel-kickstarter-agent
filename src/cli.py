@@ -103,10 +103,10 @@ async def main(trace: bool = False, debug: bool = False):
     if existing_sessions.sessions:
         has_default_session = any(s.id == SESSION_ID for s in existing_sessions.sessions)
         if has_default_session:
-            resume = questionary.confirm(
+            resume = await questionary.confirm(
                 "Found an unfinished travel planning session. Do you want to resume?",
                 default=True
-            ).ask()
+            ).ask_async()
             
             if resume:
                 session = await session_service.get_session(
@@ -128,41 +128,41 @@ async def main(trace: bool = False, debug: bool = False):
         print("Let's plan your next trip. I need a few details first.\n")
         
         # 1. Vibe Check (Gather preferences)
-        destination = questionary.text(
+        destination = await questionary.text(
             "Where do you want to go?",
             default="Tokyo"
-        ).ask()
+        ).ask_async()
         if not destination:
             print("Destination is required. Exiting.")
             return
             
-        duration_str = questionary.select(
+        duration_str = await questionary.select(
             "How many days?",
             choices=["1", "2", "3"],
             default="3"
-        ).ask()
+        ).ask_async()
         duration_days = int(duration_str)
         
-        vibe = questionary.text(
+        vibe = await questionary.text(
             "What is the vibe of the trip? (e.g., adventure, history, food, relaxation, nature)",
             default="culture and food"
-        ).ask()
+        ).ask_async()
         
-        home_city = questionary.text(
+        home_city = await questionary.text(
             "What is your home city? (for personalization)",
             default="San Francisco"
-        ).ask()
+        ).ask_async()
         
-        budget = questionary.select(
+        budget = await questionary.select(
             "What is your budget tier?",
             choices=["low", "medium", "high"],
             default="medium"
-        ).ask()
+        ).ask_async()
         
-        diet = questionary.text(
+        diet = await questionary.text(
             "Do you have any dietary restrictions?",
             default="none"
-        ).ask()
+        ).ask_async()
         
         explicit_prefs = {
             "home_city": home_city,

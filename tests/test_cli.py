@@ -43,14 +43,14 @@ MOCK_ITINERARY = Itinerary(
 @patch("src.cli.Runner") # Mock Runner to avoid actual LLM calls
 async def test_cli_main_loop(mock_runner_cls, mock_input, mock_select, mock_text, tmp_path):
     # Setup mocks for questionary
-    mock_text.side_effect = lambda question, **kwargs: MagicMock(ask=MagicMock(return_value={
+    mock_text.side_effect = lambda question, **kwargs: MagicMock(ask_async=AsyncMock(return_value={
         "Where do you want to go?": "Tokyo",
         "What is the vibe of the trip? (e.g., adventure, history, food, relaxation, nature)": "culture",
         "What is your home city? (for personalization)": "San Jose",
         "Do you have any dietary restrictions?": "none"
     }.get(question, "default_val")))
     
-    mock_select.side_effect = lambda question, **kwargs: MagicMock(ask=MagicMock(return_value={
+    mock_select.side_effect = lambda question, **kwargs: MagicMock(ask_async=AsyncMock(return_value={
         "How many days?": "1",
         "What is your budget tier?": "medium"
     }.get(question, "default_val")))
@@ -113,7 +113,7 @@ async def test_cli_main_loop(mock_runner_cls, mock_input, mock_select, mock_text
 @patch("src.cli.Runner")
 async def test_cli_resume_flow(mock_runner_cls, mock_input, mock_confirm, tmp_path):
     # Setup confirm mock to return True (resume)
-    mock_confirm.side_effect = lambda question, **kwargs: MagicMock(ask=MagicMock(return_value=True))
+    mock_confirm.side_effect = lambda question, **kwargs: MagicMock(ask_async=AsyncMock(return_value=True))
 
     # Setup inputs for the command loop: just exit immediately
     mock_input.side_effect = ["/done"]
@@ -164,13 +164,13 @@ async def test_cli_resume_flow(mock_runner_cls, mock_input, mock_confirm, tmp_pa
 @patch("src.telemetry.setup_telemetry")
 async def test_cli_with_trace(mock_setup_telemetry, mock_runner_cls, mock_input, mock_select, mock_text, tmp_path):
     # Setup mocks
-    mock_text.side_effect = lambda question, **kwargs: MagicMock(ask=MagicMock(return_value={
+    mock_text.side_effect = lambda question, **kwargs: MagicMock(ask_async=AsyncMock(return_value={
         "Where do you want to go?": "Tokyo",
         "What is the vibe of the trip? (e.g., adventure, history, food, relaxation, nature)": "culture",
         "What is your home city? (for personalization)": "San Jose",
         "Do you have any dietary restrictions?": "none"
     }.get(question, "default_val")))
-    mock_select.side_effect = lambda question, **kwargs: MagicMock(ask=MagicMock(return_value={
+    mock_select.side_effect = lambda question, **kwargs: MagicMock(ask_async=AsyncMock(return_value={
         "How many days?": "1",
         "What is your budget tier?": "medium"
     }.get(question, "default_val")))
