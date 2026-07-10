@@ -2,6 +2,7 @@ import os
 import sys
 import pytest
 from typing import Generator
+from unittest.mock import patch, AsyncMock
 from google.genai import types
 
 # Adjust path to import src
@@ -9,7 +10,7 @@ sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 
 from src.tools import search_places, get_weather_forecast, estimate_transit_time, book_trip_mock
 from src.agent import create_travel_agent
-from src.schemas import Itinerary
+from src.schemas import Itinerary, DayPlan, Activity
 from google.adk.runners import Runner
 from google.adk.artifacts.in_memory_artifact_service import InMemoryArtifactService
 from google.adk.sessions.sqlite_session_service import SqliteSessionService
@@ -85,15 +86,38 @@ def extract_event_text(event) -> str:
     return ""
 
 @pytest.mark.anyio
-async def test_travel_agent_itinerary_generation(tmp_path, monkeypatch):
-    # Ensure API Key is available, skip if not (though it should be available in this env)
-    api_key = os.getenv("GEMINI_API_KEY") or os.getenv("GOOGLE_API_KEY")
-    if not api_key:
-        pytest.skip("Skipping integration test: GEMINI_API_KEY or GOOGLE_API_KEY not set.")
+@patch("google.genai.models.AsyncModels.generate_content")
+async def test_travel_agent_itinerary_generation(mock_generate_content, tmp_path, monkeypatch):
+    # Set fake API key for ADK initialization
+    monkeypatch.setenv("GEMINI_API_KEY", "fake_key")
+    monkeypatch.setenv("GOOGLE_API_KEY", "fake_key")
 
-    # Force using the key we found
-    monkeypatch.setenv("GEMINI_API_KEY", api_key)
-    monkeypatch.setenv("GOOGLE_API_KEY", api_key)
+    # Setup mock LLM response
+    mock_itinerary = Itinerary(
+        destination="Tokyo",
+        days=[
+            DayPlan(
+                day=1,
+                activities=[
+                    Activity(index=1, slot="Morning", activity="Sensō-ji", category="sightseeing", description="Temple"),
+                ]
+            )
+        ]
+    )
+    
+    mock_response = types.GenerateContentResponse(
+        candidates=[
+            types.Candidate(
+                content=types.Content(
+                    role="model",
+                    parts=[
+                        types.Part.from_text(text=mock_itinerary.model_dump_json())
+                    ]
+                )
+            )
+        ]
+    )
+    mock_generate_content.return_value = mock_response
 
     db_path = str(tmp_path / "test_agent.db")
     
