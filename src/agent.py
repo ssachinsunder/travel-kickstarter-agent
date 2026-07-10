@@ -13,6 +13,9 @@ from google.adk.agents.callback_context import CallbackContext
 from google.adk.models.llm_response import LlmResponse
 import json
 import re
+import logging
+
+logger = logging.getLogger(__name__)
 
 # =====================================================================
 # Agent Instructions
@@ -136,6 +139,18 @@ def planner_after_model_callback(callback_context: CallbackContext, llm_response
         
     warnings = validate_itinerary(itinerary, callback_context.session.events)
     
+    # Log the outcome
+    logger.info(
+        f"Itinerary generated for {itinerary.destination} with {len(warnings)} warnings",
+        extra={
+            "session_id": callback_context.session.id,
+            "destination": itinerary.destination,
+            "days": len(itinerary.days),
+            "warnings_count": len(warnings),
+            "warnings": warnings
+        }
+    )
+    
     if warnings:
         itinerary.warnings.extend(warnings)
         new_json_text = itinerary.model_dump_json(indent=2)
@@ -145,6 +160,21 @@ def planner_after_model_callback(callback_context: CallbackContext, llm_response
                 break
         return llm_response
         
+    return None
+
+def router_after_model_callback(callback_context: CallbackContext, llm_response: LlmResponse) -> Optional[LlmResponse]:
+    func_calls = llm_response.get_function_calls()
+    for fc in func_calls:
+        if fc.name == "transfer_to_agent":
+            target = fc.args.get("agent_name")
+            logger.info(
+                f"Router routing to {target}",
+                extra={
+                    "session_id": callback_context.session.id,
+                    "action": "transfer",
+                    "target_agent": target
+                }
+            )
     return None
 
 # =====================================================================
@@ -167,6 +197,7 @@ def create_router_agent(client: Optional[Client] = None) -> LlmAgent:
         model=model,
         instruction=ROUTER_INSTRUCTION,
         mode="chat",
+        after_model_callback=router_after_model_callback,
     )
 
 def create_planner_agent(client: Optional[Client] = None) -> LlmAgent:

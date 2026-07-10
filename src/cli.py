@@ -5,6 +5,8 @@ import random
 import sys
 import logging
 import questionary
+from src.logger_config import setup_logging
+from dotenv import load_dotenv
 from typing import Optional
 
 # Adjust path to import src
@@ -20,10 +22,7 @@ from src.schemas import Itinerary
 from src.session import create_new_session
 
 # Configure logging
-logging.basicConfig(
-    level=logging.WARNING, # Set to WARNING to keep CLI clean, change to INFO for debugging
-    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s"
-)
+setup_logging(level=logging.WARNING)
 logger = logging.getLogger(__name__)
 
 DB_PATH = "travel_agent.db"
@@ -67,8 +66,10 @@ async def refresh_and_display(orchestrator: TravelOrchestrator, itinerary: Itine
     return itinerary
 
 def _setup_env(debug: bool, trace: bool) -> bool:
+    load_dotenv()
+    
     if debug:
-        logging.getLogger().setLevel(logging.INFO)
+        setup_logging(level=logging.INFO)
         logging.getLogger("google_adk").setLevel(logging.INFO)
         
     if trace:
@@ -76,11 +77,15 @@ def _setup_env(debug: bool, trace: bool) -> bool:
         setup_telemetry(DB_PATH)
         print("🔍 Telemetry enabled. Traces will be saved to SQLite.")
 
-    # Ensure API Key is available
-    api_key = os.getenv("GEMINI_API_KEY") or os.getenv("GOOGLE_API_KEY")
+    # Try Secret Manager
+    from src.secret_manager import get_secret
+    api_key = get_secret("gemini-api-key")
+    
     if not api_key:
-        print("\n❌ Error: GEMINI_API_KEY or GOOGLE_API_KEY environment variable is not set.")
-        print("Please set it in your .env file or environment.")
+        api_key = os.getenv("GEMINI_API_KEY") or os.getenv("GOOGLE_API_KEY")
+        
+    if not api_key:
+        print("\n❌ Error: API Key not found in Secret Manager or env (GEMINI_API_KEY/GOOGLE_API_KEY).")
         return False
         
     # Set env vars for ADK

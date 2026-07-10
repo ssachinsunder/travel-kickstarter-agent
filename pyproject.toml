@@ -18,6 +18,7 @@ dependencies = [
     "questionary>=2.1.1",
     "python-dotenv>=1.2.2",
     "aiosqlite>=0.22.1",
+    "google-cloud-secret-manager",
 ]
 
 [project.optional-dependencies]
