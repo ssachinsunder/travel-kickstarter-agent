@@ -93,7 +93,7 @@ async def test_cli_main_loop(mock_runner_cls, mock_input, mock_select, mock_text
         # We also need to mock environment variable check so it doesn't fail
         with patch.dict(os.environ, {"GEMINI_API_KEY": "fake_key", "GOOGLE_API_KEY": "fake_key"}):
             # Run the CLI main function
-            await cli.main()
+            await cli.run_app()
 
     # Verify that the session was ended (memory service called)
     # We can check if DB has the session data.
@@ -144,7 +144,7 @@ async def test_cli_resume_flow(mock_runner_cls, mock_input, mock_confirm, tmp_pa
     # Set mock db path in cli
     with patch("src.cli.DB_PATH", db_path):
         with patch.dict(os.environ, {"GEMINI_API_KEY": "fake_key", "GOOGLE_API_KEY": "fake_key"}):
-            await cli.main()
+            await cli.run_app()
 
     # Verify that runner.run was NOT called because we resumed and exited
     assert mock_runner.run.call_count == 0
@@ -189,6 +189,6 @@ async def test_cli_with_trace(mock_setup_telemetry, mock_runner_cls, mock_input,
 
     with patch("src.cli.DB_PATH", db_path):
         with patch.dict(os.environ, {"GEMINI_API_KEY": "fake_key", "GOOGLE_API_KEY": "fake_key"}):
-            await cli.main(trace=True)
+            await cli.run_app(trace=True)
 
     mock_setup_telemetry.assert_called_once_with(db_path)

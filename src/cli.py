@@ -1,6 +1,7 @@
 import asyncio
 import argparse
 import os
+import random
 import sys
 import logging
 import questionary
@@ -16,6 +17,7 @@ from src.memory_service import SQLiteMemoryService
 from src.orchestrator import TravelOrchestrator
 from src.agent import create_travel_agent
 from src.schemas import Itinerary
+from src.session import create_new_session
 
 # Configure logging
 logging.basicConfig(
@@ -27,6 +29,16 @@ logger = logging.getLogger(__name__)
 DB_PATH = "travel_agent.db"
 USER_ID = "default_user"
 SESSION_ID = "travel_session"
+
+# Default Preferences Configuration
+DESTINATION_DEFAULTS = ["Tokyo", "Paris", "New York"]
+DURATION_CHOICES = ["1", "2", "3"]
+DEFAULT_DURATION = "3"
+DEFAULT_VIBE = "culture and food"
+HOME_CITY_DEFAULTS = ["San Francisco", "London", "Sydney"]
+BUDGET_CHOICES = ["low", "medium", "high"]
+DEFAULT_BUDGET = "medium"
+DEFAULT_DIET = "none"
 
 def print_itinerary(itinerary: Itinerary, locked_indices: list[int]):
     print(f"\n==================================================")
@@ -42,19 +54,19 @@ def print_itinerary(itinerary: Itinerary, locked_indices: list[int]):
             print(f"--------------------------------------------------")
     print(f"==================================================")
 
-async def refresh_and_display(orchestrator: TravelOrchestrator, itinerary: Itinerary) -> Itinerary:
+async def refresh_and_display(orchestrator: TravelOrchestrator, itinerary: Itinerary, user_id: str, session_id: str) -> Itinerary:
     """Refreshes the session state from DB and prints the updated itinerary.
     
     Avoids repetitive session reading and display logic.
     """
-    locked_indices = await orchestrator.get_locked_indices(USER_ID, SESSION_ID)
-    current_itinerary = await orchestrator.get_current_itinerary(USER_ID, SESSION_ID)
+    locked_indices = await orchestrator.get_locked_indices(user_id, session_id)
+    current_itinerary = await orchestrator.get_current_itinerary(user_id, session_id)
     if current_itinerary:
         itinerary = current_itinerary
     print_itinerary(itinerary, locked_indices)
     return itinerary
 
-async def main(trace: bool = False, debug: bool = False):
+def _setup_env(debug: bool, trace: bool) -> bool:
     if debug:
         logging.getLogger().setLevel(logging.INFO)
         logging.getLogger("google_adk").setLevel(logging.INFO)
@@ -69,15 +81,16 @@ async def main(trace: bool = False, debug: bool = False):
     if not api_key:
         print("\n❌ Error: GEMINI_API_KEY or GOOGLE_API_KEY environment variable is not set.")
         print("Please set it in your .env file or environment.")
-        return
+        return False
         
     # Set env vars for ADK
     os.environ["GEMINI_API_KEY"] = api_key
     os.environ["GOOGLE_API_KEY"] = api_key
-    
-    # Initialize Services
-    session_service = SqliteSessionService(DB_PATH)
-    memory_service = SQLiteMemoryService(DB_PATH)
+    return True
+
+def _init_orchestrator(db_path: str) -> TravelOrchestrator:
+    session_service = SqliteSessionService(db_path)
+    memory_service = SQLiteMemoryService(db_path)
     
     agent = create_travel_agent()
     runner = Runner(
@@ -88,12 +101,59 @@ async def main(trace: bool = False, debug: bool = False):
         memory_service=memory_service,
     )
     
-    orchestrator = TravelOrchestrator(runner, memory_service)
+    return TravelOrchestrator(runner, memory_service)
 
-    print("👋 Welcome to the Travel Activation Agent!")
+async def _gather_user_preferences() -> Optional[tuple[str, int, str, dict]]:
+    print("Let's plan your next trip. I need a few details first.\n")
     
-    # Check for existing session
-    has_default_session = await orchestrator.session_exists(USER_ID, SESSION_ID)
+    default_dest = random.choice(DESTINATION_DEFAULTS)
+    destination = await questionary.text(
+        "Where do you want to go?",
+        default=default_dest
+    ).ask_async()
+    if not destination:
+        print("Destination is required. Exiting.")
+        return None
+        
+    duration_str = await questionary.select(
+        "How many days?",
+        choices=DURATION_CHOICES,
+        default=DEFAULT_DURATION
+    ).ask_async()
+    duration_days = int(duration_str)
+    
+    vibe = await questionary.text(
+        "What is the vibe of the trip? (e.g., adventure, history, food, relaxation, nature)",
+        default=DEFAULT_VIBE
+    ).ask_async()
+    
+    default_home = random.choice(HOME_CITY_DEFAULTS)
+    home_city = await questionary.text(
+        "What is your home city? (for personalization)",
+        default=default_home
+    ).ask_async()
+    
+    budget = await questionary.select(
+        "What is your budget tier?",
+        choices=BUDGET_CHOICES,
+        default=DEFAULT_BUDGET
+    ).ask_async()
+    
+    diet = await questionary.text(
+        "Do you have any dietary restrictions?",
+        default=DEFAULT_DIET
+    ).ask_async()
+    
+    explicit_prefs = {
+        "home_city": home_city,
+        "budget_tier": budget,
+        "dietary_restrictions": diet
+    }
+    
+    return destination, duration_days, vibe, explicit_prefs
+
+async def _setup_session(orchestrator: TravelOrchestrator, user_id: str, session_id: str) -> Optional[Itinerary]:
+    has_default_session = await orchestrator.session_exists(user_id, session_id)
     resume = False
     
     if has_default_session:
@@ -103,78 +163,103 @@ async def main(trace: bool = False, debug: bool = False):
         ).ask_async()
         
         if resume:
-            itinerary = await orchestrator.get_current_itinerary(USER_ID, SESSION_ID)
+            itinerary = await orchestrator.get_current_itinerary(user_id, session_id)
             if itinerary:
                 print("\n📋 Resuming your previous session...")
-                itinerary = await refresh_and_display(orchestrator, itinerary)
+                return await refresh_and_display(orchestrator, itinerary, user_id, session_id)
             else:
                 print("\n⚠️ Previous session was empty. Starting a new one.")
                 resume = False
         else:
-            await orchestrator.delete_session(USER_ID, SESSION_ID)
+            await orchestrator.delete_session(user_id, session_id)
 
     if not resume:
-        print("Let's plan your next trip. I need a few details first.\n")
+        prefs = await _gather_user_preferences()
+        if not prefs:
+            return None
+        destination, duration_days, vibe, explicit_prefs = prefs
         
-        # 1. Vibe Check (Gather preferences)
-        destination = await questionary.text(
-            "Where do you want to go?",
-            default="Tokyo"
-        ).ask_async()
-        if not destination:
-            print("Destination is required. Exiting.")
-            return
-            
-        duration_str = await questionary.select(
-            "How many days?",
-            choices=["1", "2", "3"],
-            default="3"
-        ).ask_async()
-        duration_days = int(duration_str)
-        
-        vibe = await questionary.text(
-            "What is the vibe of the trip? (e.g., adventure, history, food, relaxation, nature)",
-            default="culture and food"
-        ).ask_async()
-        
-        home_city = await questionary.text(
-            "What is your home city? (for personalization)",
-            default="San Francisco"
-        ).ask_async()
-        
-        budget = await questionary.select(
-            "What is your budget tier?",
-            choices=["low", "medium", "high"],
-            default="medium"
-        ).ask_async()
-        
-        diet = await questionary.text(
-            "Do you have any dietary restrictions?",
-            default="none"
-        ).ask_async()
-        
-        explicit_prefs = {
-            "home_city": home_city,
-            "budget_tier": budget,
-            "dietary_restrictions": diet
-        }
-        
-        # Start Session
-        await orchestrator.start_session(USER_ID, SESSION_ID, explicit_prefs)
-        
-        # Generate Initial Itinerary
         print("\n🧠 Generating your custom itinerary... (this may take a few seconds)")
-        itinerary = await orchestrator.generate_initial_itinerary(
-            USER_ID, SESSION_ID, destination, duration_days, vibe
+        itinerary = await create_new_session(
+            orchestrator, user_id, session_id, destination, duration_days, vibe, explicit_prefs
         )
-        
         if not itinerary:
             print("❌ Failed to generate itinerary. Please try again.")
-            return
-            
-        itinerary = await refresh_and_display(orchestrator, itinerary)
+            return None
+        return await refresh_and_display(orchestrator, itinerary, user_id, session_id)
     
-    # 4. Command Loop
+    return None
+
+def _parse_command(user_input: str) -> tuple[str, str]:
+    parts = user_input.strip().split(maxsplit=1)
+    cmd = parts[0] if parts else ""
+    args = parts[1] if len(parts) > 1 else ""
+    return cmd, args
+
+def _parse_index_arg(args_str: str) -> Optional[int]:
+    try:
+        return int(args_str)
+    except ValueError:
+        print("Index must be an integer.")
+        return None
+
+async def _handle_done(orchestrator: TravelOrchestrator, user_id: str, session_id: str, itinerary: Itinerary, args: str) -> tuple[Optional[Itinerary], bool]:
+    print("\nFinalizing your session...")
+    await orchestrator.end_session(user_id, session_id)
+    print("💾 Preferences saved. Enjoy your trip! ✈️")
+    return itinerary, True
+
+async def _handle_lock(orchestrator: TravelOrchestrator, user_id: str, session_id: str, itinerary: Itinerary, args: str) -> tuple[Optional[Itinerary], bool]:
+    if not args:
+        print("Usage: /lock [index]")
+        return itinerary, False
+    index = _parse_index_arg(args)
+    if index is None:
+        return itinerary, False
+    
+    msg = await orchestrator.handle_lock(user_id, session_id, index)
+    print(f"\n{msg}")
+    itinerary = await refresh_and_display(orchestrator, itinerary, user_id, session_id)
+    return itinerary, False
+
+async def _handle_swap(orchestrator: TravelOrchestrator, user_id: str, session_id: str, itinerary: Itinerary, args: str) -> tuple[Optional[Itinerary], bool]:
+    if not args:
+        print("Usage: /swap [index]")
+        return itinerary, False
+    index = _parse_index_arg(args)
+    if index is None:
+        return itinerary, False
+        
+    print(f"🔄 Swapping activity {index}... (calling LLM)")
+    new_itinerary = await orchestrator.handle_swap(user_id, session_id, index)
+    if new_itinerary:
+        itinerary = new_itinerary
+        print("✅ Swapped!")
+    else:
+        print("❌ Swap failed.")
+    itinerary = await refresh_and_display(orchestrator, itinerary, user_id, session_id)
+    return itinerary, False
+
+async def _handle_regenerate(orchestrator: TravelOrchestrator, user_id: str, session_id: str, itinerary: Itinerary, args: str) -> tuple[Optional[Itinerary], bool]:
+    feedback = args if args else None
+    print("🔄 Regenerating itinerary... (calling LLM)")
+    new_itinerary = await orchestrator.handle_regenerate(user_id, session_id, feedback)
+    if new_itinerary:
+        itinerary = new_itinerary
+        print("✅ Regenerated!")
+    else:
+        print("❌ Regeneration failed.")
+    itinerary = await refresh_and_display(orchestrator, itinerary, user_id, session_id)
+    return itinerary, False
+
+async def _command_loop(orchestrator: TravelOrchestrator, itinerary: Itinerary, user_id: str, session_id: str):
+    COMMAND_HANDLERS = {
+        "/done": _handle_done,
+        "/lock": _handle_lock,
+        "/swap": _handle_swap,
+        "/regenerate": _handle_regenerate,
+    }
+
     while True:
         print("\nAvailable Commands:")
         print("  /lock [index]       - Pin an activity so it doesn't change")
@@ -182,62 +267,39 @@ async def main(trace: bool = False, debug: bool = False):
         print("  /regenerate [feed]  - Regenerate itinerary, preserving locks (optional feedback)")
         print("  /done               - Finalize trip, save preferences, and exit")
         
-        cmd_input = input("\nEnter command: ").strip()
+        try:
+            cmd_input = await asyncio.to_thread(input, "\nEnter command: ")
+        except (KeyboardInterrupt, EOFError):
+            print("\nExiting...")
+            break
+            
+        cmd_input = cmd_input.strip()
         if not cmd_input:
             continue
             
-        if cmd_input == "/done":
-            print("\nFinalizing your session...")
-            await orchestrator.end_session(USER_ID, SESSION_ID)
-            print("💾 Preferences saved. Enjoy your trip! ✈️")
-            break
-            
-        elif cmd_input.startswith("/lock"):
-            parts = cmd_input.split(maxsplit=1)
-            if len(parts) < 2:
-                print("Usage: /lock [index]")
-                continue
-            try:
-                index = int(parts[1])
-                msg = await orchestrator.handle_lock(USER_ID, SESSION_ID, index)
-                print(f"\n{msg}")
-                itinerary = await refresh_and_display(orchestrator, itinerary)
-            except ValueError:
-                print("Index must be an integer.")
-                
-        elif cmd_input.startswith("/swap"):
-            parts = cmd_input.split(maxsplit=1)
-            if len(parts) < 2:
-                print("Usage: /swap [index]")
-                continue
-            try:
-                index = int(parts[1])
-                print(f"🔄 Swapping activity {index}... (calling LLM)")
-                new_itinerary = await orchestrator.handle_swap(USER_ID, SESSION_ID, index)
-                if new_itinerary:
-                    itinerary = new_itinerary
-                    print("✅ Swapped!")
-                else:
-                    print("❌ Swap failed.")
-                itinerary = await refresh_and_display(orchestrator, itinerary)
-            except ValueError:
-                print("Index must be an integer.")
-                
-        elif cmd_input.startswith("/regenerate"):
-            parts = cmd_input.split(maxsplit=1)
-            feedback = parts[1] if len(parts) > 1 else None
-            
-            print("🔄 Regenerating itinerary... (calling LLM)")
-            new_itinerary = await orchestrator.handle_regenerate(USER_ID, SESSION_ID, feedback)
-            if new_itinerary:
-                itinerary = new_itinerary
-                print("✅ Regenerated!")
-            else:
-                print("❌ Regeneration failed.")
-            itinerary = await refresh_and_display(orchestrator, itinerary)
-            
+        cmd, args = _parse_command(cmd_input)
+        
+        if cmd in COMMAND_HANDLERS:
+            handler = COMMAND_HANDLERS[cmd]
+            itinerary, should_exit = await handler(orchestrator, user_id, session_id, itinerary, args)
+            if should_exit:
+                break
         else:
             print("Unknown command. Please use /lock, /swap, /regenerate, or /done.")
+
+async def run_app(trace: bool = False, debug: bool = False):
+    if not _setup_env(debug, trace):
+        return
+        
+    orchestrator = _init_orchestrator(DB_PATH)
+
+    print("👋 Welcome to the Travel Activation Agent!")
+    
+    itinerary = await _setup_session(orchestrator, USER_ID, SESSION_ID)
+    if not itinerary:
+        return
+        
+    await _command_loop(orchestrator, itinerary, USER_ID, SESSION_ID)
 
 def run_cli():
     parser = argparse.ArgumentParser(description="Travel Activation Agent CLI")
@@ -246,7 +308,7 @@ def run_cli():
     args = parser.parse_args()
     
     try:
-        asyncio.run(main(trace=args.trace, debug=args.debug))
+        asyncio.run(run_app(trace=args.trace, debug=args.debug))
     except KeyboardInterrupt:
         print("\nExiting. Goodbye!")
 
