@@ -174,6 +174,19 @@ def book_trip_mock(destination: str, check_in: str, check_out: str, budget: str)
     Returns:
         dict: Booking confirmation details.
     """
+    # Prompt for confirmation if not in testing
+    if not os.getenv("TESTING") and not os.getenv("PYTEST_CURRENT_TEST"):
+        import questionary
+        confirmed = questionary.confirm(
+            f"⚠️ [HITL] Confirm booking to {destination} ({check_in} to {check_out}) with {budget} budget?"
+        ).ask()
+        if not confirmed:
+            logger.info("Booking cancelled by user.")
+            return {
+                "status": "failed",
+                "message": "Booking cancelled by user."
+            }
+            
     logger.info(f"Simulating booking for {destination} from {check_in} to {check_out} with budget {budget}")
     
     # Simple mock confirmation

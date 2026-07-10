@@ -223,3 +223,107 @@ async def test_travel_agent_itinerary_generation(tmp_path, monkeypatch):
         
     except Exception as e:
         pytest.fail(f"Failed to parse agent response as Itinerary: {e}\nResponse was: {response_text}")
+
+
+@pytest.mark.anyio
+async def test_planner_validation_weather_conflict(tmp_path):
+    from unittest.mock import MagicMock, AsyncMock
+    from google.genai import Client
+    from google.adk.events.event import Event
+    
+    # Setup mock LLM response returning an itinerary with outdoor activity (nature)
+    mock_itinerary = Itinerary(
+        destination="Tokyo",
+        days=[
+            DayPlan(
+                day=1,
+                activities=[
+                    Activity(index=1, slot="Morning", activity="Ueno Park", category="nature", description="Walk in park"),
+                ]
+            )
+        ]
+    )
+    
+    mock_response = types.GenerateContentResponse(
+        candidates=[
+            types.Candidate(
+                content=types.Content(
+                    role="model",
+                    parts=[
+                        types.Part.from_text(text=mock_itinerary.model_dump_json())
+                    ]
+                )
+            )
+        ]
+    )
+    
+    mock_client = MagicMock(spec=Client)
+    mock_client.aio = MagicMock()
+    mock_client.aio.models = MagicMock()
+    mock_client.aio.models.generate_content = AsyncMock(return_value=mock_response)
+    mock_client.vertexai = False
+
+    db_path = str(tmp_path / "test_validation.db")
+    session_service = SqliteSessionService(db_path)
+    memory_service = SQLiteMemoryService(db_path)
+    
+    agent = create_travel_agent(client=mock_client)
+    runner = Runner(
+        app_name="travel_app",
+        agent=agent,
+        artifact_service=InMemoryArtifactService(),
+        session_service=session_service,
+        memory_service=memory_service,
+    )
+
+    session_id = "session_123"
+    user_id = "user_123"
+    session = await runner.session_service.create_session(
+        app_name=runner.app_name,
+        user_id=user_id,
+        session_id=session_id,
+    )
+    
+    # Pre-populate session events with a weather forecast indicating RAIN
+    weather_resp = types.FunctionResponse(
+        name="get_weather_forecast",
+        response={"status": "success", "forecast": [{"day": 1, "weather": "Rain", "temp_c": 15}]}
+    )
+    
+    tool_event = Event(
+        invocation_id="init-inv",
+        author="get_weather_forecast",
+        content=types.Content(
+            role="tool",
+            parts=[types.Part(function_response=weather_resp)]
+        )
+    )
+    await runner.session_service.append_event(session, tool_event)
+
+    new_message = types.Content(
+        role="user",
+        parts=[types.Part.from_text(text="Plan a 1-day trip to Tokyo.")],
+    )
+
+    events = list(
+        runner.run(
+            user_id=user_id,
+            session_id=session_id,
+            new_message=new_message,
+        )
+    )
+
+    response_text = ""
+    for event in events:
+        text = extract_event_text(event)
+        if text:
+            response_text += text
+
+    assert response_text != ""
+    
+    # Verify warnings are injected
+    itinerary = Itinerary.model_validate_json(response_text)
+    assert len(itinerary.warnings) > 0
+    assert "Weather alert" in itinerary.warnings[0]
+    assert "Ueno Park" in itinerary.warnings[0]
+    assert "rain" in itinerary.warnings[0].lower()

@@ -32,11 +32,13 @@ class Config:
     @property
     def model_name(self) -> str:
         """Returns the model name to use. Defaults to 'gemini-3.5-flash'."""
+        # TODO(developer): Restore default to 'gemini-2.5-flash' once supported in this env.
         return os.getenv("MODEL_NAME", "gemini-3.5-flash")
 
     @property
     def pro_model_name(self) -> str:
         """Returns the pro model name to use. Defaults to 'gemini-3.5-flash'."""
+        # TODO(developer): Restore default to 'gemini-2.5-pro' once supported in this env.
         return os.getenv("PRO_MODEL_NAME", "gemini-3.5-flash")
 
 # Global config instance

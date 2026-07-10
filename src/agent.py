@@ -8,6 +8,11 @@ from src.config import config
 from google.adk.apps.app import App
 from google.adk.apps._configs import EventsCompactionConfig
 from google.adk.apps.llm_event_summarizer import LlmEventSummarizer
+from google.adk.events.event import Event
+from google.adk.agents.callback_context import CallbackContext
+from google.adk.models.llm_response import LlmResponse
+import json
+import re
 
 # =====================================================================
 # Agent Instructions
@@ -61,6 +66,88 @@ CRITICAL: Before calling the `book_trip_mock` tool, you MUST ask the user for ex
 """
 
 # =====================================================================
+# Validation Guards & Callbacks
+# =====================================================================
+
+def _extract_weather_forecast(events: list[Event]) -> Optional[dict]:
+    for event in reversed(events):
+        for resp in event.get_function_responses():
+            if resp.name == "get_weather_forecast":
+                return resp.response
+    return None
+
+def validate_itinerary(itinerary: Itinerary, events: list[Event]) -> list[str]:
+    warnings = []
+    
+    # 1. Check duplicate slots and indices
+    for day_plan in itinerary.days:
+        slots = []
+        indices = []
+        for activity in day_plan.activities:
+            if activity.slot:
+                slots.append(activity.slot.lower())
+            if activity.index:
+                indices.append(activity.index)
+                
+        if len(slots) != len(set(slots)):
+            warnings.append(f"Day {day_plan.day} has duplicate slots: {slots}")
+            
+        if len(indices) != len(set(indices)):
+            warnings.append(f"Day {day_plan.day} has duplicate activity indices: {indices}")
+            
+    # 2. Check weather conflicts
+    weather_info = _extract_weather_forecast(events)
+    if weather_info and weather_info.get("status") in ("success", "fallback"):
+        forecast = weather_info.get("forecast", [])
+        weather_map = {f.get("day"): f.get("weather", "").lower() for f in forecast}
+        
+        for day_plan in itinerary.days:
+            day_weather = weather_map.get(day_plan.day)
+            if day_weather in ("rain", "storm", "snow"):
+                for activity in day_plan.activities:
+                    if activity.category.lower() in ("nature", "sightseeing"):
+                        warnings.append(
+                            f"Weather alert: Outdoor activity '{activity.activity}' (category: {activity.category}) "
+                            f"is planned on Day {day_plan.day} but the forecast is {day_weather}."
+                        )
+    return warnings
+
+def planner_after_model_callback(callback_context: CallbackContext, llm_response: LlmResponse) -> Optional[LlmResponse]:
+    if llm_response.get_function_calls():
+        return None
+        
+    text = None
+    if llm_response.content and llm_response.content.parts:
+        for part in llm_response.content.parts:
+            if part.text:
+                text = part.text
+                break
+    if not text:
+        return None
+        
+    json_match = re.search(r"```json\s*(.*?)\s*```", text, re.DOTALL)
+    json_text = json_match.group(1) if json_match else text
+        
+    try:
+        itinerary_dict = json.loads(json_text)
+        itinerary = Itinerary.model_validate(itinerary_dict)
+    except Exception:
+        return None
+        
+    warnings = validate_itinerary(itinerary, callback_context.session.events)
+    
+    if warnings:
+        itinerary.warnings.extend(warnings)
+        new_json_text = itinerary.model_dump_json(indent=2)
+        for part in llm_response.content.parts:
+            if part.text:
+                part.text = new_json_text
+                break
+        return llm_response
+        
+    return None
+
+# =====================================================================
 # Agent Creators
 # =====================================================================
 
@@ -100,6 +187,7 @@ def create_planner_agent(client: Optional[Client] = None) -> LlmAgent:
         tools=[search_places, get_weather_forecast, estimate_transit_time],
         output_schema=Itinerary,
         mode="chat",
+        after_model_callback=planner_after_model_callback,
     )
 
 def create_booking_agent(client: Optional[Client] = None) -> LlmAgent:

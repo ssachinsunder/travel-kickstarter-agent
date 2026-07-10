@@ -15,3 +15,4 @@ class DayPlan(BaseModel):
 class Itinerary(BaseModel):
     destination: str = Field(description="The destination of the trip.")
     days: List[DayPlan] = Field(description="Day-by-day plan.")
+    warnings: List[str] = Field(default_factory=list, description="Any warnings about the itinerary (e.g., weather conflicts, transit times).")
