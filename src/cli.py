@@ -47,13 +47,10 @@ async def refresh_and_display(orchestrator: TravelOrchestrator, itinerary: Itine
     
     Avoids repetitive session reading and display logic.
     """
-    session = await orchestrator.runner.session_service.get_session(
-        app_name=orchestrator.app_name, user_id=USER_ID, session_id=SESSION_ID
-    )
-    locked_indices = session.state.get("locked_indices", [])
-    current_itinerary_dict = session.state.get("current_itinerary")
-    if current_itinerary_dict:
-        itinerary = Itinerary.model_validate(current_itinerary_dict)
+    locked_indices = await orchestrator.get_locked_indices(USER_ID, SESSION_ID)
+    current_itinerary = await orchestrator.get_current_itinerary(USER_ID, SESSION_ID)
+    if current_itinerary:
+        itinerary = current_itinerary
     print_itinerary(itinerary, locked_indices)
     return itinerary
 
@@ -96,33 +93,25 @@ async def main(trace: bool = False, debug: bool = False):
     print("👋 Welcome to the Travel Activation Agent!")
     
     # Check for existing session
-    existing_sessions = await session_service.list_sessions(app_name="travel_app", user_id=USER_ID)
+    has_default_session = await orchestrator.session_exists(USER_ID, SESSION_ID)
     resume = False
-    session = None
     
-    if existing_sessions.sessions:
-        has_default_session = any(s.id == SESSION_ID for s in existing_sessions.sessions)
-        if has_default_session:
-            resume = await questionary.confirm(
-                "Found an unfinished travel planning session. Do you want to resume?",
-                default=True
-            ).ask_async()
-            
-            if resume:
-                session = await session_service.get_session(
-                    app_name="travel_app", user_id=USER_ID, session_id=SESSION_ID
-                )
-                if session and session.state.get("current_itinerary"):
-                    itinerary = Itinerary.model_validate(session.state["current_itinerary"])
-                    print("\n📋 Resuming your previous session...")
-                    itinerary = await refresh_and_display(orchestrator, itinerary)
-                else:
-                    print("\n⚠️ Previous session was empty. Starting a new one.")
-                    resume = False
+    if has_default_session:
+        resume = await questionary.confirm(
+            "Found an unfinished travel planning session. Do you want to resume?",
+            default=True
+        ).ask_async()
+        
+        if resume:
+            itinerary = await orchestrator.get_current_itinerary(USER_ID, SESSION_ID)
+            if itinerary:
+                print("\n📋 Resuming your previous session...")
+                itinerary = await refresh_and_display(orchestrator, itinerary)
             else:
-                await session_service.delete_session(
-                    app_name="travel_app", user_id=USER_ID, session_id=SESSION_ID
-                )
+                print("\n⚠️ Previous session was empty. Starting a new one.")
+                resume = False
+        else:
+            await orchestrator.delete_session(USER_ID, SESSION_ID)
 
     if not resume:
         print("Let's plan your next trip. I need a few details first.\n")

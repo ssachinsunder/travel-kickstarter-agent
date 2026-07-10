@@ -36,6 +36,36 @@ class TravelOrchestrator:
         )
         return session
 
+    async def session_exists(self, user_id: str, session_id: str) -> bool:
+        """Checks if a session exists."""
+        sessions = await self.runner.session_service.list_sessions(app_name=self.app_name, user_id=user_id)
+        return any(s.id == session_id for s in sessions.sessions)
+
+    async def delete_session(self, user_id: str, session_id: str):
+        """Deletes a session."""
+        await self.runner.session_service.delete_session(
+            app_name=self.app_name, user_id=user_id, session_id=session_id
+        )
+
+    async def get_current_itinerary(self, user_id: str, session_id: str) -> Optional[Itinerary]:
+        """Gets the current itinerary for the session."""
+        session = await self.runner.session_service.get_session(
+            app_name=self.app_name, user_id=user_id, session_id=session_id
+        )
+        if session and session.state.get("current_itinerary"):
+            return Itinerary.model_validate(session.state["current_itinerary"])
+        return None
+
+    async def get_locked_indices(self, user_id: str, session_id: str) -> List[int]:
+        """Gets the locked indices for the session."""
+        session = await self.runner.session_service.get_session(
+            app_name=self.app_name, user_id=user_id, session_id=session_id
+        )
+        if session:
+            return session.state.get("locked_indices", [])
+        return []
+
+
     def _extract_itinerary_from_events(self, events) -> Optional[Itinerary]:
         """Extracts and parses the structured Itinerary from runner events."""
         text_parts = []
@@ -266,7 +296,6 @@ CRITICAL REQUIREMENTS:
         new_itinerary = self._extract_itinerary_from_events(events)
         if new_itinerary:
             self._enforce_locks(itinerary, new_itinerary, locked_indices)
-            
             session = await self.runner.session_service.get_session(
                 app_name=self.app_name, user_id=user_id, session_id=session_id
             )

@@ -322,3 +322,51 @@ async def test_orchestrator_errors(orchestrator):
     msg = await orchestrator.handle_lock(user_id, session_id, 1)
     assert "No active itinerary" in msg
 
+
+@pytest.mark.anyio
+async def test_orchestrator_helper_methods(orchestrator):
+    user_id = "user_helper"
+    session_id = "session_helper"
+    explicit_prefs = {"home_city": "San Jose"}
+
+    # 1. Test session_exists (should be False)
+    assert not await orchestrator.session_exists(user_id, session_id)
+
+    # 2. Start Session
+    await orchestrator.start_session(user_id, session_id, explicit_prefs)
+
+    # 3. Test session_exists (should be True)
+    assert await orchestrator.session_exists(user_id, session_id)
+
+    # 4. Test get_current_itinerary (should be None initially)
+    assert await orchestrator.get_current_itinerary(user_id, session_id) is None
+
+    # 5. Test get_locked_indices (should be empty initially)
+    assert await orchestrator.get_locked_indices(user_id, session_id) == []
+
+    # 6. Set itinerary and lock in session state directly (simulate orchestrator actions)
+    session = await orchestrator.runner.session_service.get_session(
+        app_name=orchestrator.app_name, user_id=user_id, session_id=session_id
+    )
+    update_event = Event(
+        id="test-state-update",
+        invocation_id="test",
+        partial=False,
+        actions=EventActions(state_delta={
+            "current_itinerary": MOCK_ITINERARY_1.model_dump(),
+            "locked_indices": [1, 2]
+        })
+    )
+    await orchestrator.runner.session_service.append_event(session, update_event)
+
+    # 7. Test get_current_itinerary (should return MOCK_ITINERARY_1)
+    retrieved_itinerary = await orchestrator.get_current_itinerary(user_id, session_id)
+    assert retrieved_itinerary == MOCK_ITINERARY_1
+
+    # 8. Test get_locked_indices (should return [1, 2])
+    assert await orchestrator.get_locked_indices(user_id, session_id) == [1, 2]
+
+    # 9. Test delete_session
+    await orchestrator.delete_session(user_id, session_id)
+    assert not await orchestrator.session_exists(user_id, session_id)
+
