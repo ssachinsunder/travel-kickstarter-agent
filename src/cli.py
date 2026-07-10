@@ -173,6 +173,7 @@ async def _setup_session(orchestrator: TravelOrchestrator, user_id: str, session
                 return await refresh_and_display(orchestrator, itinerary, user_id, session_id)
             else:
                 print("\n⚠️ Previous session was empty. Starting a new one.")
+                await orchestrator.delete_session(user_id, session_id)
                 resume = False
         else:
             await orchestrator.delete_session(user_id, session_id)
