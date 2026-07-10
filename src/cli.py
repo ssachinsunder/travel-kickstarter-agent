@@ -15,7 +15,7 @@ from google.adk.artifacts.in_memory_artifact_service import InMemoryArtifactServ
 from google.adk.sessions.sqlite_session_service import SqliteSessionService
 from src.memory_service import SQLiteMemoryService
 from src.orchestrator import TravelOrchestrator
-from src.agent import create_travel_agent
+from src.agent import create_travel_app
 from src.schemas import Itinerary
 from src.session import create_new_session
 
@@ -92,10 +92,9 @@ def _init_orchestrator(db_path: str) -> TravelOrchestrator:
     session_service = SqliteSessionService(db_path)
     memory_service = SQLiteMemoryService(db_path)
     
-    agent = create_travel_agent()
+    app = create_travel_app()
     runner = Runner(
-        app_name="travel_app",
-        agent=agent,
+        app=app,
         artifact_service=InMemoryArtifactService(),
         session_service=session_service,
         memory_service=memory_service,
@@ -206,6 +205,7 @@ def _parse_index_arg(args_str: str) -> Optional[int]:
 async def _handle_done(orchestrator: TravelOrchestrator, user_id: str, session_id: str, itinerary: Itinerary, args: str) -> tuple[Optional[Itinerary], bool]:
     print("\nFinalizing your session...")
     await orchestrator.end_session(user_id, session_id)
+    await orchestrator.wait_for_pending_tasks()
     print("💾 Preferences saved. Enjoy your trip! ✈️")
     return itinerary, True
 
@@ -293,13 +293,16 @@ async def run_app(trace: bool = False, debug: bool = False):
         
     orchestrator = _init_orchestrator(DB_PATH)
 
-    print("👋 Welcome to the Travel Activation Agent!")
-    
-    itinerary = await _setup_session(orchestrator, USER_ID, SESSION_ID)
-    if not itinerary:
-        return
+    try:
+        print("👋 Welcome to the Travel Activation Agent!")
         
-    await _command_loop(orchestrator, itinerary, USER_ID, SESSION_ID)
+        itinerary = await _setup_session(orchestrator, USER_ID, SESSION_ID)
+        if not itinerary:
+            return
+            
+        await _command_loop(orchestrator, itinerary, USER_ID, SESSION_ID)
+    finally:
+        await orchestrator.wait_for_pending_tasks()
 
 def run_cli():
     parser = argparse.ArgumentParser(description="Travel Activation Agent CLI")

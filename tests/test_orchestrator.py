@@ -152,10 +152,13 @@ async def test_orchestrator_swap_and_safeguard(orchestrator):
     )
     
     mock_json = bad_swapped_itinerary.model_dump_json()
-    with patch.object(orchestrator.runner, 'run', return_value=[make_mock_event(mock_json)]) as mock_run:
+    with patch.object(orchestrator.runner, 'run', return_value=[make_mock_event(mock_json)]) as mock_run, \
+         patch.object(orchestrator.memory_service, 'add_session_to_memory', wraps=orchestrator.memory_service.add_session_to_memory) as mock_add:
         new_itinerary = await orchestrator.handle_swap(user_id, session_id, 2)
         assert new_itinerary is not None
+        await orchestrator.wait_for_pending_tasks()
         mock_run.assert_called_once()
+        mock_add.assert_called_once()
         
         # Verify that swap prompt contained the lock information
         called_args = mock_run.call_args[1]
@@ -219,6 +222,7 @@ async def test_orchestrator_end_session(orchestrator):
     # End session
     with patch.object(orchestrator.memory_service, 'add_session_to_memory', wraps=orchestrator.memory_service.add_session_to_memory) as mock_add:
         await orchestrator.end_session(user_id, session_id)
+        await orchestrator.wait_for_pending_tasks()
         mock_add.assert_called_once()
         
         # Verify that memory DB now contains the profile and decayed weights

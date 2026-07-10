@@ -1,5 +1,6 @@
 import json
 import logging
+import asyncio
 from typing import Optional, List, Tuple
 from google.genai import types
 from google.adk.runners import Runner
@@ -18,6 +19,7 @@ class TravelOrchestrator:
         self.runner = runner
         self.memory_service = memory_service
         self.app_name = runner.app_name
+        self._background_tasks = set()
 
     async def start_session(self, user_id: str, session_id: str, explicit_prefs: dict) -> Session:
         """Starts a new travel session, initializing state with user preferences."""
@@ -238,6 +240,16 @@ CRITICAL REQUIREMENTS:
                 f"swap-confirm-{index}"
             )
             logger.info("Swap completed and new itinerary persisted.")
+            
+            # Reload to get final state for memory consolidation
+            final_session = await self.runner.session_service.get_session(
+                app_name=self.app_name, user_id=user_id, session_id=session_id
+            )
+            logger.info("Triggering async memory consolidation after swap.")
+            task = asyncio.create_task(self.memory_service.add_session_to_memory(final_session))
+            self._background_tasks.add(task)
+            task.add_done_callback(self._background_tasks.discard)
+            
             return new_itinerary
             
         return None
@@ -315,5 +327,14 @@ CRITICAL REQUIREMENTS:
             app_name=self.app_name, user_id=user_id, session_id=session_id
         )
         if session:
-            logger.info(f"Ending session {session_id}. Saving to long-term memory.")
-            await self.memory_service.add_session_to_memory(session)
+            logger.info(f"Ending session {session_id}. Saving to long-term memory (async).")
+            task = asyncio.create_task(self.memory_service.add_session_to_memory(session))
+            self._background_tasks.add(task)
+            task.add_done_callback(self._background_tasks.discard)
+
+    async def wait_for_pending_tasks(self):
+        """Waits for all background tasks to complete."""
+        if self._background_tasks:
+            logger.info(f"Waiting for {len(self._background_tasks)} pending background tasks...")
+            await asyncio.gather(*self._background_tasks, return_exceptions=True)
+            logger.info("All background tasks completed.")
