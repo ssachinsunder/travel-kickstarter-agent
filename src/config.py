@@ -34,6 +34,11 @@ class Config:
         """Returns the model name to use. Defaults to 'gemini-3.5-flash'."""
         return os.getenv("MODEL_NAME", "gemini-3.5-flash")
 
+    @property
+    def pro_model_name(self) -> str:
+        """Returns the pro model name to use. Defaults to 'gemini-3.5-flash'."""
+        return os.getenv("PRO_MODEL_NAME", "gemini-3.5-flash")
+
 # Global config instance
 config = Config()
 
