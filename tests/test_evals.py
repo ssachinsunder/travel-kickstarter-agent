@@ -69,11 +69,18 @@ async def test_rainy_day_adaptation_eval(runner):
         parts=[types.Part.from_text(text=prompt)]
     )
     
-    events = list(runner.run(
-        user_id=user_id,
-        session_id=session_id,
-        new_message=new_message
-    ))
+    try:
+        events = []
+        async for event in runner.run_async(
+            user_id=user_id,
+            session_id=session_id,
+            new_message=new_message
+        ):
+            events.append(event)
+    except Exception as e:
+        if "503" in str(e) or "UNAVAILABLE" in str(e):
+            pytest.skip("Skipping eval due to Gemini API temporary unavailability.")
+        raise e
     
     # Extract itinerary
     text_parts = []
@@ -111,21 +118,26 @@ Respond with ONLY a JSON object matching this schema:
 }}
 """
     
-    judge_response = client.models.generate_content(
-        model=config.model_name,
-        contents=judge_prompt,
-        config=types.GenerateContentConfig(
-            response_mime_type="application/json",
-            response_schema=types.Schema(
-                type=types.Type.OBJECT,
-                properties={
-                    "appropriate": types.Schema(type=types.Type.BOOLEAN),
-                    "reason": types.Schema(type=types.Type.STRING)
-                },
-                required=["appropriate", "reason"]
+    try:
+        judge_response = client.models.generate_content(
+            model=config.model_name,
+            contents=judge_prompt,
+            config=types.GenerateContentConfig(
+                response_mime_type="application/json",
+                response_schema=types.Schema(
+                    type=types.Type.OBJECT,
+                    properties={
+                        "appropriate": types.Schema(type=types.Type.BOOLEAN),
+                        "reason": types.Schema(type=types.Type.STRING)
+                    },
+                    required=["appropriate", "reason"]
+                )
             )
         )
-    )
+    except Exception as e:
+        if "503" in str(e) or "UNAVAILABLE" in str(e):
+            pytest.skip("Skipping eval due to Gemini API temporary unavailability during judging.")
+        raise e
     
     judge_result = json.loads(judge_response.text)
     logger.info(f"Judge Result for Rainy Day: {judge_result}")
@@ -162,11 +174,18 @@ async def test_weather_fallback_eval(runner):
     )
     
     try:
-        events = list(runner.run(
-            user_id=user_id,
-            session_id=session_id,
-            new_message=new_message
-        ))
+        try:
+            events = []
+            async for event in runner.run_async(
+                user_id=user_id,
+                session_id=session_id,
+                new_message=new_message
+            ):
+                events.append(event)
+        except Exception as e:
+            if "503" in str(e) or "UNAVAILABLE" in str(e):
+                pytest.skip("Skipping eval due to Gemini API temporary unavailability.")
+            raise e
         
         text_parts = []
         for event in events:

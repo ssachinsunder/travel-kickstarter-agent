@@ -86,8 +86,7 @@ def extract_event_text(event) -> str:
     return ""
 
 @pytest.mark.anyio
-@patch("google.genai.models.AsyncModels.generate_content")
-async def test_travel_agent_itinerary_generation(mock_generate_content, tmp_path, monkeypatch):
+async def test_travel_agent_itinerary_generation(tmp_path, monkeypatch):
     # Set fake API key for ADK initialization
     monkeypatch.setenv("GEMINI_API_KEY", "fake_key")
     monkeypatch.setenv("GOOGLE_API_KEY", "fake_key")
@@ -117,7 +116,16 @@ async def test_travel_agent_itinerary_generation(mock_generate_content, tmp_path
             )
         ]
     )
-    mock_generate_content.return_value = mock_response
+    
+    # Create Mock Client
+    from unittest.mock import MagicMock, AsyncMock
+    from google.genai import Client
+    
+    mock_client = MagicMock(spec=Client)
+    mock_client.aio = MagicMock()
+    mock_client.aio.models = MagicMock()
+    mock_client.aio.models.generate_content = AsyncMock(return_value=mock_response)
+    mock_client.vertexai = False
 
     db_path = str(tmp_path / "test_agent.db")
     
@@ -145,8 +153,8 @@ async def test_travel_agent_itinerary_generation(mock_generate_content, tmp_path
         )
     )
 
-    # Create Agent and Runner
-    agent = create_travel_agent()
+    # Create Agent and Runner with injected mock client
+    agent = create_travel_agent(client=mock_client)
     runner = Runner(
         app_name="travel_app",
         agent=agent,

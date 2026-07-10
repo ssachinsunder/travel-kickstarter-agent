@@ -1,4 +1,7 @@
 from google.adk.agents.llm_agent import LlmAgent
+from google.adk.models.google_llm import Gemini
+from google.genai import Client
+from typing import Optional
 from src.schemas import Itinerary
 from src.tools import search_places, get_weather_forecast, estimate_transit_time, book_trip_mock
 from src.config import config
@@ -22,10 +25,21 @@ To do this:
 Your final response MUST be a JSON object matching the `Itinerary` schema. Do not include any conversational text in the final response, only the JSON.
 """
 
-def create_travel_agent() -> LlmAgent:
+def create_travel_agent(client: Optional[Client] = None) -> LlmAgent:
+    """Creates the Travel Agent, optionally injecting a custom Gemini Client."""
+    if client is not None:
+        class InjectedGemini(Gemini):
+            @property
+            def api_client(self) -> Client:
+                return client
+        
+        model = InjectedGemini(model=config.model_name)
+    else:
+        model = config.model_name
+
     return LlmAgent(
         name="travel_agent",
-        model=config.model_name,
+        model=model,
         instruction=INSTRUCTION,
         tools=[search_places, get_weather_forecast, estimate_transit_time, book_trip_mock],
         output_schema=Itinerary,
