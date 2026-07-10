@@ -17,3 +17,8 @@ __pycache__/
 .pytest_cache/
 .coverage
 htmlcov/
+
+# Documentation
+docs/v2_implementation_plan.md
+docs/implementation_plan.md
+
