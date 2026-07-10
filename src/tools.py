@@ -42,6 +42,7 @@ def search_places(query: str, location: str) -> dict:
         print("⚠️ Places API unavailable. Using default recommendations.")
         return {
             "status": "fallback",
+            "llm_recovery_instruction": "The Places API is currently unavailable. Use these default recommendations, but warn the user that live search failed and suggest they try again later if they want specific spots.",
             "places": [
                 {"name": f"Local Park in {location}", "category": "nature", "description": "A beautiful public park."},
                 {"name": f"Central Street in {location}", "category": "shopping", "description": "Main street with local shops."}
@@ -89,6 +90,7 @@ def get_weather_forecast(location: str, days: int = 3) -> dict:
         print("⚠️ Weather API unavailable. Assuming fair weather.")
         return {
             "status": "fallback",
+            "llm_recovery_instruction": "Weather API is unavailable. Assuming fair weather (22C, Fair) for all days. Inform the user about this assumption and advise them to check actual weather before traveling.",
             "forecast": [{"day": i+1, "weather": "Fair", "temp": "22C"} for i in range(days)]
         }
 
@@ -150,12 +152,15 @@ def estimate_transit_time(origin: str, destination: str, mode: str = "driving") 
     duration_hours = distance_km / speed
     duration_minutes = int(duration_hours * 60)
     
-    return {
+    result = {
         "status": status,
         "distance_km": round(distance_km, 2),
         "duration_minutes": duration_minutes,
         "mode": mode
     }
+    if status == "fallback_default":
+        result["llm_recovery_instruction"] = "Could not estimate exact transit time due to unknown coordinates. Using a default estimate of 15km / 30 minutes. Warn the user that this is a rough estimate."
+    return result
 
 def book_trip_mock(destination: str, check_in: str, check_out: str, budget: str) -> dict:
     """Simulates booking flights and hotels (mock tool).

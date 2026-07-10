@@ -32,6 +32,8 @@ def test_search_places_fallback(monkeypatch):
     monkeypatch.setenv("MOCK_PLACES_API_FAIL", "1")
     res = search_places("hotels", "Tokyo")
     assert res["status"] == "fallback"
+    assert "llm_recovery_instruction" in res
+    assert "unavailable" in res["llm_recovery_instruction"]
     assert len(res["places"]) == 2
     assert "Local Park" in res["places"][0]["name"]
 
@@ -46,6 +48,8 @@ def test_get_weather_forecast_fallback(monkeypatch):
     monkeypatch.setenv("MOCK_WEATHER_API_FAIL", "1")
     res = get_weather_forecast("Tokyo", days=3)
     assert res["status"] == "fallback"
+    assert "llm_recovery_instruction" in res
+    assert "unavailable" in res["llm_recovery_instruction"]
     assert len(res["forecast"]) == 3
     assert res["forecast"][0]["weather"] == "Fair"
 
@@ -61,6 +65,8 @@ def test_estimate_transit_time_fallback():
     # Unknown city
     res = estimate_transit_time("Tokyo", "Atlantis", mode="driving")
     assert res["status"] == "fallback_default"
+    assert "llm_recovery_instruction" in res
+    assert "rough estimate" in res["llm_recovery_instruction"]
     assert res["distance_km"] == 15.0
     assert res["duration_minutes"] == 30 # 15km / 30km/h = 0.5h = 30m
 
